@@ -332,11 +332,10 @@ public class OverlayService extends Service implements View.OnTouchListener {
         }
         PendingIntent pendingIntent = PendingIntent.getActivity(this,
                 0, notificationIntent, pendingFlags);
-        final int notifyIcon = getDrawableResourceId("drawable", "icon_test_512");
         Notification notification = new NotificationCompat.Builder(this, OverlayConstants.CHANNEL_ID)
                 .setContentTitle(WindowSetup.overlayTitle)
                 .setContentText(WindowSetup.overlayContent)
-                .setSmallIcon(notifyIcon == 0 ? R.drawable.icon_test_512 : notifyIcon)
+                .setSmallIcon(R.drawable.icon_test_512)
                 .setContentIntent(pendingIntent)
                 .setVisibility(WindowSetup.notificationVisibility)
                 .build();
