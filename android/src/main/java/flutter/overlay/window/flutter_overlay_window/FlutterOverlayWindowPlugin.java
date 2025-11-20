@@ -1,39 +1,3 @@
-package flutter.overlay.window.flutter_overlay_window;
-
-import android.app.Activity;
-import android.app.NotificationManager;
-import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
-import android.os.Build;
-import android.provider.Settings;
-import android.service.notification.StatusBarNotification;
-import android.util.Log;
-import android.view.WindowManager;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.RequiresApi;
-import androidx.core.app.NotificationManagerCompat;
-
-import java.util.Map;
-
-import io.flutter.FlutterInjector;
-import io.flutter.embedding.engine.FlutterEngine;
-import io.flutter.embedding.engine.FlutterEngineCache;
-import io.flutter.embedding.engine.FlutterEngineGroup;
-import io.flutter.embedding.engine.dart.DartExecutor;
-import io.flutter.embedding.engine.plugins.FlutterPlugin;
-import io.flutter.embedding.engine.plugins.activity.ActivityAware;
-import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
-import io.flutter.plugin.common.BasicMessageChannel;
-import io.flutter.plugin.common.JSONMessageCodec;
-import io.flutter.plugin.common.MethodCall;
-import io.flutter.plugin.common.MethodChannel;
-import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
-import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry;
-
 public class FlutterOverlayWindowPlugin implements
         FlutterPlugin, ActivityAware, BasicMessageChannel.MessageHandler, MethodCallHandler,
         PluginRegistry.ActivityResultListener {
@@ -42,7 +6,10 @@ public class FlutterOverlayWindowPlugin implements
     private Context context;
     private Activity mActivity;
     private BasicMessageChannel<Object> messenger;
-    private Result pendingResult;
+
+    private Result overlayPermissionResult;
+    private boolean isRequestingOverlayPermission = false;
+
     final int REQUEST_CODE_FOR_OVERLAY_PERMISSION = 1248;
 
     @Override
@@ -62,17 +29,33 @@ public class FlutterOverlayWindowPlugin implements
     @RequiresApi(api = Build.VERSION_CODES.N)
     @Override
     public void onMethodCall(@NonNull MethodCall call, @NonNull Result result) {
-        pendingResult = result;
+
         if (call.method.equals("checkPermission")) {
             result.success(checkOverlayPermission());
+
         } else if (call.method.equals("requestPermission")) {
+
+            if (isRequestingOverlayPermission) {
+                result.error("ALREADY_REQUESTING", "Overlay permission request is already in progress", null);
+                return;
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (mActivity == null) {
+                    result.error("NO_ACTIVITY", "Activity is null", null);
+                    return;
+                }
+
+                isRequestingOverlayPermission = true;
+                overlayPermissionResult = result;
+
                 Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
                 intent.setData(Uri.parse("package:" + mActivity.getPackageName()));
                 mActivity.startActivityForResult(intent, REQUEST_CODE_FOR_OVERLAY_PERMISSION);
             } else {
                 result.success(true);
             }
+
         } else if (call.method.equals("showOverlay")) {
             if (!checkOverlayPermission()) {
                 result.error("PERMISSION", "overlay permission is not enabled", null);
@@ -109,25 +92,29 @@ public class FlutterOverlayWindowPlugin implements
             intent.putExtra("startY", startY);
             context.startService(intent);
             result.success(null);
+
         } else if (call.method.equals("isOverlayActive")) {
             result.success(OverlayService.isRunning);
             return;
-        } else if (call.method.equals("isOverlayActive")) {
-            result.success(OverlayService.isRunning);
-            return;
+
         } else if (call.method.equals("moveOverlay")) {
             int x = call.argument("x");
             int y = call.argument("y");
             result.success(OverlayService.moveOverlay(x, y));
+
         } else if (call.method.equals("getOverlayPosition")) {
             result.success(OverlayService.getCurrentPosition());
+
         } else if (call.method.equals("closeOverlay")) {
             if (OverlayService.isRunning) {
                 final Intent i = new Intent(context, OverlayService.class);
                 context.stopService(i);
                 result.success(true);
+            } else {
+                result.success(false);
             }
             return;
+
         } else {
             result.notImplemented();
         }
@@ -188,7 +175,19 @@ public class FlutterOverlayWindowPlugin implements
     @Override
     public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == REQUEST_CODE_FOR_OVERLAY_PERMISSION) {
-            pendingResult.success(checkOverlayPermission());
+
+            if (overlayPermissionResult == null) {
+                isRequestingOverlayPermission = false;
+                return true;
+            }
+
+            boolean granted = checkOverlayPermission();
+
+            Result result = overlayPermissionResult;
+            overlayPermissionResult = null;
+            isRequestingOverlayPermission = false;
+
+            result.success(granted);
             return true;
         }
         return false;
