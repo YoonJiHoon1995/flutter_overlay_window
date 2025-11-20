@@ -70,25 +70,25 @@ public class FlutterOverlayWindowPlugin implements
 
         } else if (call.method.equals("requestPermission")) {
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 if (mActivity == null) {
                     result.error("NO_ACTIVITY", "Activity is null", null);
                     return;
                 }
 
-                // 이미 요청 중이면 또 요청하지 않기
-                if (isRequestingOverlayPermission) {
-                    result.error("ALREADY_REQUESTING", "Overlay permission request is already in progress", null);
+                // 이미 권한이 있는 경우
+                if (checkOverlayPermission()) {
+                    result.success(true);
                     return;
                 }
 
-                isRequestingOverlayPermission = true;
-                overlayPermissionResult = result;
-
+                // 🔥 결과를 기다리지 않고 그냥 설정 화면만 연다 (startActivityForResult X)
                 Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
                 intent.setData(Uri.parse("package:" + mActivity.getPackageName()));
-                mActivity.startActivityForResult(intent, REQUEST_CODE_FOR_OVERLAY_PERMISSION);
+                mActivity.startActivity(intent);
 
+                // 여기서는 "지금은 아직 권한 없다" 정도로만 알려주고 끝
+                result.success(false);
             } else {
                 result.success(true);
             }
