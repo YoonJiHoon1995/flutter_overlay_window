@@ -177,7 +177,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
         flutterView.setOnTouchListener(this);
         windowManager.addView(flutterView, params);
         moveOverlay(dx, dy, null);
-        return START_STICKY;
+        return START_REDELIVER_INTENT;
     }
 
 
