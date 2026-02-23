@@ -207,6 +207,8 @@ public class OverlayService extends Service implements View.OnTouchListener {
             windowManager.addView(flutterView, params);
             moveOverlay(dx, dy, null);
 
+            Log.e("OverlayService", "start Success", e);
+
         } catch (Exception e) {
             Log.e("OverlayService", "Error during onStartCommand execution", e);
             stopSelf();
