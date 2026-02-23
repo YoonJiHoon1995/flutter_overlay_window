@@ -97,6 +97,7 @@ public class OverlayService extends Service implements View.OnTouchListener {
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        android.widget.Toast.makeText(this, "오버레이 서비스 시작됨!", android.widget.Toast.LENGTH_SHORT).show();
         // 1. 최상단에서 Intent가 null인지 확인
         // START_STICKY 등으로 인해 시스템이 인텐트 없이 서비스를 살릴 경우 여기서 차단합니다.
         if (intent == null) {
