@@ -97,93 +97,123 @@ public class OverlayService extends Service implements View.OnTouchListener {
     @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR1)
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        // 1. 최상단에서 Intent가 null인지 확인
+        // START_STICKY 등으로 인해 시스템이 인텐트 없이 서비스를 살릴 경우 여기서 차단합니다.
         if (intent == null) {
-            Log.w("OverlayService", "Intent is null, stopping service");
+            Log.w("OverlayService", "Intent is null. System tried to restart service without data. Stopping service.");
             stopSelf();
             return START_NOT_STICKY;
         }
 
+        // 2. 인텐트 데이터를 지역 변수에 안전하게 복사하여 사용
+        final Intent safeIntent = intent;
         mResources = getApplicationContext().getResources();
-        int startX = intent.getIntExtra("startX", OverlayConstants.DEFAULT_XY);
-        int startY = intent.getIntExtra("startY", OverlayConstants.DEFAULT_XY);
-        boolean isCloseWindow = intent.getBooleanExtra(INTENT_EXTRA_IS_CLOSE_WINDOW, false);
-        if (isCloseWindow) {
+
+        try {
+            int startX = safeIntent.getIntExtra("startX", OverlayConstants.DEFAULT_XY);
+            int startY = safeIntent.getIntExtra("startY", OverlayConstants.DEFAULT_XY);
+            boolean isCloseWindow = safeIntent.getBooleanExtra(INTENT_EXTRA_IS_CLOSE_WINDOW, false);
+
+            // 창 닫기 요청 처리
+            if (isCloseWindow) {
+                if (windowManager != null) {
+                    windowManager.removeView(flutterView);
+                    windowManager = null;
+                    flutterView.detachFromFlutterEngine();
+                    stopSelf();
+                }
+                isRunning = false;
+                // 닫는 로직에서도 시스템이 서비스를 다시 살리지 않도록 START_NOT_STICKY 반환
+                return START_NOT_STICKY;
+            }
+
+            // 기존에 이미 윈도우가 떠 있다면 제거 후 재설정
             if (windowManager != null) {
                 windowManager.removeView(flutterView);
                 windowManager = null;
                 flutterView.detachFromFlutterEngine();
-                stopSelf();
             }
-            isRunning = false;
-            return START_STICKY;
-        }
-        if (windowManager != null) {
-            windowManager.removeView(flutterView);
-            windowManager = null;
-            flutterView.detachFromFlutterEngine();
-            stopSelf();
-        }
-        isRunning = true;
-        Log.d("onStartCommand", "Service started");
-        FlutterEngine engine = FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG);
-        engine.getLifecycleChannel().appIsResumed();
-        flutterView = new FlutterView(getApplicationContext(), new FlutterTextureView(getApplicationContext()));
-        flutterView.attachToFlutterEngine(FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG));
-        flutterView.setFitsSystemWindows(true);
-        flutterView.setFocusable(true);
-        flutterView.setFocusableInTouchMode(true);
-        flutterView.setBackgroundColor(Color.TRANSPARENT);
-        flutterChannel.setMethodCallHandler((call, result) -> {
-            if (call.method.equals("updateFlag")) {
-                String flag = call.argument("flag").toString();
-                updateOverlayFlag(result, flag);
-            } else if (call.method.equals("updateOverlayPosition")) {
-                int x = call.<Integer>argument("x");
-                int y = call.<Integer>argument("y");
-                moveOverlay(x, y, result);
-            } else if (call.method.equals("resizeOverlay")) {
-                int width = call.argument("width");
-                int height = call.argument("height");
-                boolean enableDrag = call.argument("enableDrag");
-                resizeOverlay(width, height, enableDrag, result);
-            }
-        });
-        overlayMessageChannel.setMessageHandler((message, reply) -> {
-            WindowSetup.messenger.send(message);
-        });
-        windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-            windowManager.getDefaultDisplay().getSize(szWindow);
-        } else {
-            DisplayMetrics displaymetrics = new DisplayMetrics();
-            windowManager.getDefaultDisplay().getMetrics(displaymetrics);
-            int w = displaymetrics.widthPixels;
-            int h = displaymetrics.heightPixels;
-            szWindow.set(w, h);
+            isRunning = true;
+
+            // Flutter 엔진 설정
+            FlutterEngine engine = FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG);
+            if (engine != null) {
+                engine.getLifecycleChannel().appIsResumed();
+            }
+
+            flutterView = new FlutterView(getApplicationContext(), new FlutterTextureView(getApplicationContext()));
+            flutterView.attachToFlutterEngine(FlutterEngineCache.getInstance().get(OverlayConstants.CACHED_TAG));
+            flutterView.setFitsSystemWindows(true);
+            flutterView.setFocusable(true);
+            flutterView.setFocusableInTouchMode(true);
+            flutterView.setBackgroundColor(Color.TRANSPARENT);
+
+            // 채널 셋업
+            flutterChannel.setMethodCallHandler((call, result) -> {
+                if (call.method.equals("updateFlag")) {
+                    String flag = call.argument("flag").toString();
+                    updateOverlayFlag(result, flag);
+                } else if (call.method.equals("updateOverlayPosition")) {
+                    int x = call.<Integer>argument("x");
+                    int y = call.<Integer>argument("y");
+                    moveOverlay(x, y, result);
+                } else if (call.method.equals("resizeOverlay")) {
+                    int width = call.argument("width");
+                    int height = call.argument("height");
+                    boolean enableDrag = call.argument("enableDrag");
+                    resizeOverlay(width, height, enableDrag, result);
+                }
+            });
+
+            overlayMessageChannel.setMessageHandler((message, reply) -> {
+                WindowSetup.messenger.send(message);
+            });
+
+            windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+
+            // 화면 크기 계산
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+                windowManager.getDefaultDisplay().getSize(szWindow);
+            } else {
+                DisplayMetrics displaymetrics = new DisplayMetrics();
+                windowManager.getDefaultDisplay().getMetrics(displaymetrics);
+                szWindow.set(displaymetrics.widthPixels, displaymetrics.heightPixels);
+            }
+
+            int dx = startX == OverlayConstants.DEFAULT_XY ? 0 : startX;
+            int dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : startY;
+
+            // 레이아웃 파라미터 설정
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+                    WindowSetup.width == -1999 ? -1 : WindowSetup.width,
+                    WindowSetup.height != -1999 ? WindowSetup.height : screenHeight(),
+                    0,
+                    -statusBarHeightPx(),
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE,
+                    WindowSetup.flag | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
+                            | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                    PixelFormat.TRANSLUCENT
+            );
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && WindowSetup.flag == clickableFlag) {
+                params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
+            }
+
+            params.gravity = WindowSetup.gravity;
+            flutterView.setOnTouchListener(this);
+            windowManager.addView(flutterView, params);
+            moveOverlay(dx, dy, null);
+
+        } catch (Exception e) {
+            Log.e("OverlayService", "Error during onStartCommand execution", e);
+            stopSelf();
+            return START_NOT_STICKY;
         }
-        int dx = startX == OverlayConstants.DEFAULT_XY ? 0 : startX;
-        int dy = startY == OverlayConstants.DEFAULT_XY ? -statusBarHeightPx() : startY;
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-                WindowSetup.width == -1999 ? -1 : WindowSetup.width,
-                WindowSetup.height != -1999 ? WindowSetup.height : screenHeight(),
-                0,
-                -statusBarHeightPx(),
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.O ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE,
-                WindowSetup.flag | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR
-                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
-                PixelFormat.TRANSLUCENT
-        );
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && WindowSetup.flag == clickableFlag) {
-            params.alpha = MAXIMUM_OPACITY_ALLOWED_FOR_S_AND_HIGHER;
-        }
-        params.gravity = WindowSetup.gravity;
-        flutterView.setOnTouchListener(this);
-        windowManager.addView(flutterView, params);
-        moveOverlay(dx, dy, null);
-        return START_REDELIVER_INTENT;
+
+        return START_NOT_STICKY;
     }
 
 
